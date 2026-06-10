@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+  --color-primary: #10b981;
+  --color-primary-hover: #34d399;
+  --color-accent: #3b82f6;
+
+  --font-heading: "Outfit", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+/* Custom base styles */
+@layer base {
+  body {
+    @apply bg-gradient-to-br from-slate-900 to-slate-950 min-h-screen text-slate-100 font-body antialiased selection:bg-primary/30;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading tracking-tight;
+  }
+}
+
+/* Glassmorphism utilities */
+@layer utilities {
+  .glass {
+    @apply bg-slate-900/40 backdrop-blur-md border border-slate-700/50 shadow-xl;
+  }
+  .glass-card {
+    @apply bg-slate-900/40 backdrop-blur-md border border-slate-700/50 shadow-xl rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-primary/10 hover:border-slate-600/50 hover:-translate-y-1;
+  }
+  .text-glow {
+    text-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+  }
+}
