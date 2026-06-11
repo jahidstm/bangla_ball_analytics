@@ -5,12 +5,18 @@ from .config import get_settings
 settings = get_settings()
 
 # ── SQLAlchemy Async Engine ───────────────────────────────────────────────────
+# NOTE: Supabase uses PgBouncer in transaction mode (port 6543).
+# asyncpg prepared statements are incompatible with PgBouncer transaction mode.
+# Fix: set statement_cache_size=0 in connect_args.
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,        # DEBUG=True হলে SQL query print হবে
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,         # Connection alive কিনা check করে
+    connect_args={
+        "statement_cache_size": 0,   # PgBouncer compatibility fix
+    },
 )
 
 # ── Session Factory ───────────────────────────────────────────────────────────

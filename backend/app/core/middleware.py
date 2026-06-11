@@ -28,6 +28,10 @@ class PinAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        # OPTIONS request for CORS preflight skip করো
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Public paths skip করো
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
