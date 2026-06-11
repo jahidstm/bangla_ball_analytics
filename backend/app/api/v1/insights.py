@@ -24,27 +24,75 @@ async def generate_insight(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    নতুন insight generation শুরু করো।
-
-    Phase 1: DB তে record তৈরি করে 'pending' status দেয়।
-    Phase 3: LangGraph agent workflow trigger করবে।
+    নতুন insight generation শুরু করো। LangGraph Agentic workflow ট্রিগার করবে।
     """
+    from app.agents.graph import app_graph
+    import asyncio
+    from functools import partial
+
     logger.info("New insight requested", topic=body.topic)
 
-    # DB তে insight record তৈরি করো
-    new_insight = Insight(
-        topic=body.topic,
-        status="pending",
-    )
-    db.add(new_insight)
-    await db.flush()   # ID generate করতে flush করো
+    # ── Step 1: Run LangGraph FIRST in thread executor ─────────────────
+    try:
+        logger.info("Triggering LangGraph Workflow", topic=body.topic)
+        loop = asyncio.get_event_loop()
+        final_state = await loop.run_in_executor(
+            None,
+            partial(app_graph.invoke, {"topic": body.topic})
+        )
+        graph_succeeded = not final_state.get("error")
+        if not graph_succeeded:
+            logger.error("Graph returned error", error=final_state.get("error"))
+        logger.info("LangGraph finished successfully")
+    except Exception as e:
+        logger.error("Workflow crashed inside run_in_executor", error=str(e))
+        final_state = {"error": str(e)}
+        graph_succeeded = False
 
-    logger.info("Insight record created", insight_id=str(new_insight.id))
+    # ── Step 2: Now do ALL DB operations in async context ───────────────
+    try:
+        logger.info("Before db.add")
+        status_val = "completed" if graph_succeeded else "failed"
+        new_insight = Insight(
+            topic=body.topic,
+            status=status_val,
+            analysis_report=final_state.get("analysis_result") if graph_succeeded else None,
+        )
+        db.add(new_insight)
+        logger.info("Before db.flush")
+        await db.flush()  # Get the ID
+        logger.info("After db.flush")
 
-    # Phase 3 এ এখানে LangGraph workflow trigger হবে
-    # এখন শুধু "pending" status দিয়ে return করছি
-    await db.refresh(new_insight)
-    return new_insight
+        if graph_succeeded:
+            posts_to_add = []
+            for post_variant in final_state.get("bangla_posts", []):
+                post_record = Post(
+                    insight_id=new_insight.id,
+                    style_type=post_variant.style,
+                    content=post_variant.content,
+                )
+                posts_to_add.append(post_record)
+            db.add_all(posts_to_add)
+
+        logger.info("Before db.commit")
+        await db.commit()
+
+        logger.info("Before selectinload query")
+        from sqlalchemy.orm import selectinload
+        # Fetch the complete insight with posts eagerly loaded
+        # This prevents Pydantic from triggering a synchronous lazy load (which causes MissingGreenlet)
+        final_result = await db.execute(
+            select(Insight)
+            .options(selectinload(Insight.posts))
+            .where(Insight.id == new_insight.id)
+        )
+        final_insight = final_result.scalar_one()
+        
+        logger.info("Generation complete and returning response")
+        return final_insight
+    except Exception as e:
+        logger.error(f"DB operation crashed: {type(e).__name__}", error=str(e))
+        raise
 
 
 @router.get("/", response_model=List[InsightListResponse])
